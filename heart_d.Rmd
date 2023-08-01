@@ -1,0 +1,294 @@
+---
+title: "STAT515_FINAL"
+output:
+  pdf_document: default
+  html_document: default
+date: "2023-05-06"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library("ggplot2")
+library(ISLR)
+library(tidyverse)
+library("reshape2")
+library(class )
+library(dplyr)
+```
+
+
+```{r}
+heart <- read.csv("/Users/mykola/Desktop/STAT515/stat515_final/heart_failure_clinical_records_dataset.csv")
+head(heart)
+```
+
+```{r}
+any(is.na(heart))
+```
+
+```{r}
+cor_mat <- cor(heart)
+print(cor_mat)
+```
+
+```{r}
+library(ggcorrplot)
+
+ggcorrplot(cor_mat,
+           type = "lower",
+           lab = TRUE,
+           lab_size = 3,
+           colors = c("blue", "white", "red"),
+           title = "Correlation Matrix Heatmap")
+```
+
+```{r}
+summary(heart)
+```
+
+```{r}
+str(heart)
+```
+```{r}
+# changing into factors
+
+heart$DEATH_EVENT = as.factor(heart$DEATH_EVENT)
+heart$smoking = as.factor(heart$smoking)
+heart$diabetes = as.factor(heart$diabetes)
+heart$high_blood_pressure = as.factor(heart$high_blood_pressure) 
+heart$sex = as.factor(heart$sex)
+heart$anaemia = as.factor(heart$anaemia)
+```
+```{r}
+str(heart)
+```
+
+
+
+
+```{r}
+library(caret)
+set.seed(123)
+```
+
+
+
+```{r}
+dim(heart)
+```
+
+```{r}
+logit_model <- glm(DEATH_EVENT ~ ., data = heart, family = binomial)
+```
+
+```{r}
+summary(logit_model)
+```
+
+
+```{r}
+#confusion matrix
+predicted_class <- ifelse(predict(logit_model, type = "response") > 0.5, 1, 0)
+confusion_matrix <- table(predicted_class, heart$DEATH_EVENT)
+accuracy <- sum(diag(confusion_matrix))/sum(confusion_matrix)
+```
+
+```{r}
+confusion_matrix
+```
+```{r}
+accuracy
+```
+
+```{r}
+set.seed(123)
+train_index <- sample(nrow(heart), round(0.8 * nrow(heart)))
+train <- heart[train_index, ]
+test <- heart[-train_index, ]
+```
+
+
+```{r}
+model <- glm(DEATH_EVENT ~ ., family = binomial, data = train)
+```
+
+```{r}
+test$predicted <- ifelse(predict(model, test, type = "response") > 0.5, "Real", "Fake")
+```
+
+```{r}
+sum(diag(table(test$DEATH_EVENT, test$predicted))) / nrow(test)
+```
+
+
+```{r}
+# Creating a list of feature subsets to use
+feature_subsets <- list(c("age", "anaemia", "creatinine_phosphokinase", "diabetes", "ejection_fraction", "high_blood_pressure", "platelets", "serum_creatinine", "serum_sodium", "sex", "smoking"), 
+                        c("age", "anaemia", "creatinine_phosphokinase", "ejection_fraction", "platelets", "serum_creatinine", "serum_sodium", "sex"), 
+                        c("age", "serum_creatinine", "serum_sodium"),
+                        c("serum_creatinine", "serum_sodium"),
+                        c("serum_creatinine", "serum_sodium", "ejection_fraction"),
+                        c("serum_creatinine", "ejection_fraction"))
+
+```
+
+```{r}
+results <- lapply(feature_subsets, function(features){
+  # only include selected features
+  data_subset <- heart[, c(features, "DEATH_EVENT")]
+  
+  train_control <- trainControl(method = "cv", number = 10)
+  
+  # Train
+  model <- train(DEATH_EVENT ~ ., method = "glm", family = "binomial", data = data_subset, trControl = train_control, preProcess = c("center", "scale"))
+  
+  # Compute accuracy
+  accuracy <- model$results$Accuracy[1]
+  
+  # the feature subset and accuracy
+  list(features = features, accuracy = accuracy)
+})
+```
+
+
+
+
+```{r}
+# printing accuracy 
+for (i in seq_along(results)) {
+  cat(sprintf("Model %d: Features: %s, Accuracy: %.2f\n", i, paste(results[[i]]$features, collapse = ", "), results[[i]]$accuracy))
+}
+```
+```{r}
+accuracy_plot <- sapply(results, function(x) x$accuracy)
+
+# create a vector of colors with the same length as the number of models
+colors <- rep("steelblue", length(results))
+# set the color of the third bar to red
+colors[3] <- "red"
+
+barplot(accuracy_plot, names.arg = 1:length(results), ylim = c(0.50, 1), col = colors,
+        xlab = "", ylab = "Accuracy", main = "Accuracy for different feature subsets") + 
+  text(x = 1:length(results), y = accuracy_plot + 0.02, labels = round(accuracy_plot, 2), pos = 3, col = "black") + 
+  title(xlab = expression(bold("Model")), line = -11)
+
+```
+
+
+```{r}
+head(heart)
+```
+
+
+```{r}
+heart_new <- read.csv("/Users/mykola/Desktop/STAT515/stat515_final/heart_failure_clinical_records_dataset.csv")
+sup <- subset(heart_new, DEATH_EVENT==1)
+sup$death_interval <- ifelse(sup$DEATH_EVENT == 1 & sup$time <= 35, "Within 5 Week",
+                      ifelse(sup$DEATH_EVENT == 1 & sup$time <= 70 & sup$time > 35, "Within 10 Week",
+                      ifelse(sup$DEATH_EVENT == 1 & sup$time <= 105 & sup$time > 70, "Within 15 Week",
+                      ifelse(sup$DEATH_EVENT == 1 & sup$time <= 140 & sup$time > 105, "Within 20 Week",
+                      ifelse(sup$DEATH_EVENT == 1 & sup$time <= 175 & sup$time > 140, "Within 25 Week",
+                      ifelse(sup$DEATH_EVENT == 1 & sup$time > 175, "more 25 Week", NA))))))
+```
+
+
+```{r}
+head(sup)
+```
+```{r}
+# Split the original data into separate datasets based on death_interval
+df_list <- split(sup, sup$death_interval)
+
+# Rename the list elements to match the death_interval values
+names(df_list) <- paste0("death_", names(df_list))
+
+# Create separate data frames from the list
+for(i in seq_along(df_list)) {
+  assign(names(df_list)[i], df_list[[i]])
+}
+```
+
+```{r}
+`death_Within 5 Week` <- `death_Within 5 Week` %>% select(-death_interval)
+`death_Within 10 Week` <- `death_Within 10 Week` %>% select(-death_interval)
+`death_Within 15 Week` <- `death_Within 15 Week` %>% select(-death_interval)
+`death_Within 20 Week` <- `death_Within 20 Week` %>% select(-death_interval)
+`death_Within 25 Week` <- `death_Within 25 Week` %>% select(-death_interval)
+```
+
+
+
+```{r}
+cor_mat_2 <- cor(`death_Within 5 Week`)
+cor_mat_3 <- cor(`death_Within 10 Week`)
+cor_mat_4 <- cor(`death_Within 15 Week`)
+cor_mat_5 <- cor(`death_Within 20 Week`)
+cor_mat_6 <- cor(`death_Within 25 Week`)
+```
+
+```{r}
+ggcorrplot(cor_mat_2,
+           type = "lower",
+           lab = TRUE,
+           lab_size = 3,
+           colors = c("blue", "white", "red"),
+           title = "Correlation Matrix Heatmap 5 weeks")
+```
+```{r}
+ggcorrplot(cor_mat_3,
+           type = "lower",
+           lab = TRUE,
+           lab_size = 3,
+           colors = c("blue", "white", "red"),
+           title = "Correlation Matrix Heatmap 10 weeks")
+```
+```{r}
+ggcorrplot(cor_mat_4,
+           type = "lower",
+           lab = TRUE,
+           lab_size = 3,
+           colors = c("blue", "white", "red"),
+           title = "Correlation Matrix Heatmap 15 weeks")
+```
+
+```{r}
+ggcorrplot(cor_mat_5,
+           type = "lower",
+           lab = TRUE,
+           lab_size = 3,
+           colors = c("blue", "white", "red"),
+           title = "Correlation Matrix Heatmap 20 weeks")
+```
+```{r}
+ggcorrplot(cor_mat_6,
+           type = "lower",
+           lab = TRUE,
+           lab_size = 3,
+           colors = c("blue", "white", "red"),
+           title = "Correlation Matrix Heatmap 25 weeks")
+```
+
+```{r}
+summary(`death_Within 5 Week`)
+```
+
+
+```{r}
+summary(`death_Within 10 Week`)
+```
+
+```{r}
+summary(`death_Within 15 Week`)
+```
+
+```{r}
+summary(`death_Within 20 Week`)
+```
+
+```{r}
+summary(`death_Within 25 Week`)
+```
